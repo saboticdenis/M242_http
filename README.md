@@ -326,6 +326,14 @@ Das Beispiel ThingSpeak schickt, mittels HTTP POST, Sensordaten an den ThingSpea
 
 </p></details>
 
+## Anleitung Sabotic
+1. Main.cpp öffnen
+2. Thingspeak unter API Key navigieren und den Read Key kopieren
+3. Nun im oben aufgeführten Code unter:  char key[] = "A2ABBMDJYRAMA6JM"; einfügen
+4. MBED llaufen lassen und SW compilieren.
+5. Testen
+	
+	
 ## Workflow
 ***
 
