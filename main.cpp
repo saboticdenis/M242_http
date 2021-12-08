@@ -1,23 +1,49 @@
-/** Beispiel Abfrage Cloud Dienst Sunrise / Sunset
- */
+/** Beispiel Senden von Sensordaten an ThingSpeak
+    */
 #include "mbed.h"
-#include <string>
-#include "OLEDDisplay.h"
+#if MBED_CONF_IOTKIT_HTS221_SENSOR == true
+#include "HTS221Sensor.h"
+#endif
+#if MBED_CONF_IOTKIT_BMP180_SENSOR == true
+#include "BMP180Wrapper.h"
+#endif
 #include "http_request.h"
-#include "MbedJSONValue.h"
+#include "OLEDDisplay.h"
 
 // UI
 OLEDDisplay oled( MBED_CONF_IOTKIT_OLED_RST, MBED_CONF_IOTKIT_OLED_SDA, MBED_CONF_IOTKIT_OLED_SCL );
-// I/O Buffer
-char message[6000];
 
-DigitalOut myled( MBED_CONF_IOTKIT_LED1 );
+static DevI2C devI2c( MBED_CONF_IOTKIT_I2C_SDA, MBED_CONF_IOTKIT_I2C_SCL );
+#if MBED_CONF_IOTKIT_HTS221_SENSOR == true
+static HTS221Sensor hum_temp(&devI2c);
+#endif
+#if MBED_CONF_IOTKIT_BMP180_SENSOR == true
+static BMP180Wrapper hum_temp( &devI2c );
+#endif
+
+/** ThingSpeak URL und API Key ggf. anpassen */
+char host[] = "http://api.thingspeak.com/update";
+char key[] = "0PHIPK81IOH3FAIE";
+
+// I/O Buffer
+char message[1024];
+
+DigitalOut myled(MBED_CONF_IOTKIT_LED1);
 
 int main()
 {
-    oled.clear();
-    
-    oled.printf("Sunrise Sunset\n");
+    uint8_t id;
+    float value1, value2;
+
+    printf("\tThingSpeak\n");
+
+    /* Init all sensors with default params */
+    hum_temp.init(NULL);
+    hum_temp.enable();
+
+    hum_temp.read_id(&id);
+    printf("HTS221  humidity & temperature    = 0x%X\r\n", id);
+
     // Connect to the network with the default networking interface
     // if you use WiFi: see mbed_app.json for the credentials
     WiFiInterface* network = WiFiInterface::get_default_instance();
@@ -32,50 +58,34 @@ int main()
         printf("\nConnection error: %d\n", ret);
         return -1;
     }
+
     printf("Success\n\n");
     printf("MAC: %s\n", network->get_mac_address());
     SocketAddress a;
     network->get_ip_address(&a);
-    printf("IP: %s\n", a.get_ip_address());    
+    printf("IP: %s\n", a.get_ip_address());
 
     while( 1 )
     {
+        hum_temp.get_temperature(&value1);
+        hum_temp.get_humidity(&value2);
+
+        sprintf( message, "%s?key=%s&field1=%f&field2=%f", host, key, value1, value2 );
+        printf( "%s\n", message );
+        oled.cursor( 1, 0 );
+        oled.printf( "temp: %3.2f\nhum : %3.2f", value1, value2 );
+
         myled = 1;
-        // By default the body is automatically parsed and stored in a buffer, this is memory heavy.
-        // To receive chunked response, pass in a callback as last parameter to the constructor.
-        HttpRequest* get_req = new HttpRequest(network, HTTP_GET, "http://api.sunrise-sunset.org/json?lat=47.3686498&lng=8.5391825");
+        HttpRequest* get_req = new HttpRequest( network, HTTP_POST, message );
 
         HttpResponse* get_res = get_req->send();
-        // OK
-        if ( get_res )
-        {
-            MbedJSONValue parser;
-            // HTTP GET (JSON) parsen  
-            parse( parser, get_res->get_body_as_string().c_str() );
-            
-            std::string sunrise;
-            std::string sunset;            
-            
-            sunrise = parser["results"]["sunrise"].get<std::string>();
-            sunset  = parser["results"]["sunset"] .get<std::string>(); 
-            
-            // Umwandlung nach int. Damit die Zeiten besser verglichen werden können.
-            int rh, rm, rs, sh, sm, ss;
-            sscanf( sunrise.c_str(), "%d:%d:%d AM", &rh, &rm, &rs );
-            sscanf( sunset .c_str(), "%d:%d:%d PM", &sh, &sm, &ss );
-            
-            oled.cursor( 1, 0 );
-            oled.printf( "auf   %02d.%02d.%02d\nunter %02d.%02d.%02d\n", rh+2, rm, rs, sh+2+12, sm, ss );
-        }
-        // Error
-        else
+        if (!get_res)
         {
             printf("HttpRequest failed (error code %d)\n", get_req->get_error());
             return 1;
         }
         delete get_req;
         myled = 0;
-
         thread_sleep_for( 10000 );
     }
 }
